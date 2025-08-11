@@ -1,8 +1,5 @@
 # BadPractice Agent
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)  
-![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)  
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Introduction
 BadPractice Agent is a local DevOps *watchdog* that uses a powerful LLM (Large Language Model) to scan your source code for bad practices and potential issues. Running in your own environment via a CLI tool, it catches anti-patterns, bugs, and security vulnerabilities that traditional linters might miss. When triggered, it automatically reviews the codebase and emails you detailed reports of its findings – providing a full project audit on first run, and focused alerts for individual files on subsequent changes. A companion web dashboard is also included for visualizing issues and tracking code health over time.

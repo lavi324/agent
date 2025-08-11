@@ -52,4 +52,5 @@ venv/
 *.swp
 *.swo
 .DS_Store
-Thumbs.db
+Thumbs.db.env
+*.env*

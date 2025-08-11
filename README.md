@@ -102,8 +102,8 @@ After the initial audit, the agent will monitor your project for any new or modi
 
 ### CLI Examples
 - `python3 path_to_bp.py init` – Perform a full audit scan of the project (triggers the comprehensive report email).
-- 'python3 path_to_bp.py stop' - Stop the agent from monitoring.
-- 'python3 path_to_bp.py status' - reports whether your background BadPractice Agent is running and shows the last lines of its log.
+- `python3 path_to_bp.py stop` - Stop the agent from monitoring.
+- `python3 path_to_bp.py status` - reports whether your background BadPractice Agent is running and shows the last lines of its log.
 
 
 

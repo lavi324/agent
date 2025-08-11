@@ -1,0 +1,65 @@
+body {
+  background-color: #F7F0E8;  /* light background (Check Point off-white) */
+  margin: 0;
+  font-family: Arial, sans-serif;
+  color: #333;
+}
+.header {
+  background-color: #F75D39; /* Check Point primary red/orange :contentReference[oaicite:9]{index=9} */
+  color: #ffffff;
+  padding: 1.5em;
+  text-align: center;
+}
+.header h1 {
+  margin: 0 0 0.2em 0;
+}
+.subtitle {
+  font-size: 1.1em;
+  margin: 0;
+}
+.instructions, .suggestion-form {
+  max-width: 800px;
+  margin: 2em auto;
+  background: #ffffff;
+  padding: 1.5em;
+  border-radius: 8px;
+  box-shadow: 0 0 5px rgba(0,0,0,0.1);
+}
+.instructions ol {
+  margin: 0 0 1em 1em;
+}
+.note {
+  font-style: italic;
+  color: #555;
+}
+.suggestion-form form label {
+  font-weight: bold;
+}
+.suggestion-form textarea, .suggestion-form select {
+  width: 100%;
+  font-size: 1em;
+  margin-top: 0.5em;
+  margin-bottom: 1em;
+}
+.submit-btn {
+  background-color: #F75D39;
+  color: #fff;
+  border: none;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.submit-btn:hover {
+  background-color: #FF795B; /* slightly lighter hover (another brand color) */
+}
+.submit-msg {
+  margin-top: 0.5em;
+  font-weight: bold;
+}
+footer {
+  text-align: center;
+  padding: 1em;
+  font-size: 0.9em;
+  color: #777;
+}

@@ -1,23 +1,20 @@
-import os, re, smtplib, ssl, time, hashlib, random
+import os, re, time, hashlib, smtplib, ssl
 from email.message import EmailMessage
 from flask import Flask, request, jsonify
 import requests
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
-# ---- LLM config (deterministic by default)
-LLM_PROVIDER    = os.getenv("LLM_PROVIDER", "groq").lower()
-GROQ_API_KEY    = os.getenv("GROQ_API_KEY", "")
-LLM_MODEL       = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
-LLM_TOP_P       = float(os.getenv("LLM_TOP_P", "0"))
-LLM_RETRY_MAX        = int(os.getenv("LLM_RETRY_MAX", "6"))
-LLM_RETRY_BASE_DELAY = float(os.getenv("LLM_RETRY_BASE_DELAY", "1.5"))
+# ---- LLM provider ----
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL   = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL   = os.getenv("LLM_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
+TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 
-PROMPT_CHAR_BUDGET = int(os.getenv("BP_PROMPT_CHAR_BUDGET", "120000"))
-PER_FILE_MAX_CHARS = int(os.getenv("BP_PER_FILE_MAX_CHARS", "16000"))
-
-# ---- Email
+# ---- SMTP / email ----
 SMTP_HOST  = os.getenv("SMTP_HOST", "")
 SMTP_PORT  = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER  = os.getenv("SMTP_USER", "")
@@ -25,161 +22,221 @@ SMTP_PASS  = os.getenv("SMTP_PASS", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER or "no-reply@example.com")
 EMAIL_MIN_INTERVAL = int(os.getenv("EMAIL_MIN_INTERVAL", "120"))
 
-# In-memory state
-EMAIL_STATE: dict[str, dict] = {}            # last body digest per email
-RECENT_BATCH_IDS: dict[str, list] = {}       # email -> [(ts, batch_id)]
-BATCH_TTL = int(os.getenv("BP_BATCH_TTL", "180"))
+# ---- Server-side knobs ----
+BATCH_TTL = int(os.getenv("BP_BATCH_TTL", "180"))  # seconds
+RECENT_BATCH: dict[str, float] = {}                # batch_fingerprint -> ts
+EMAIL_STATE: dict[str, dict] = {}                  # email -> {"ts": float, "digest": str}
+ALLOW_MULTI_MOD_EMAILS = os.getenv("ALLOW_MULTI_MOD_EMAILS", "0") == "1"
 
-SEPARATOR = "—" * 72
+# ---------- helpers ----------
+def _now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-def _should_send_by_batch(email: str, batch_id: str) -> bool:
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8","ignore")).hexdigest()
+
+def _should_send(email: str, body: str) -> bool:
     now = time.time()
-    arr = RECENT_BATCH_IDS.setdefault(email, [])
-    # evict old
-    RECENT_BATCH_IDS[email] = [(ts,b) for (ts,b) in arr if (now - ts) <= BATCH_TTL]
-    if any(b == batch_id for _, b in RECENT_BATCH_IDS[email]):
-        print(f"[BP] suppressing duplicate by batch_id for {email}", flush=True)
+    dg = _digest(body)
+    st = EMAIL_STATE.get(email)
+    if st and st["digest"] == dg and (now - st["ts"]) < EMAIL_MIN_INTERVAL:
+        print(f"[BP] suppressing duplicate email to {email}", flush=True)
         return False
-    RECENT_BATCH_IDS[email].append((now, batch_id))
+    EMAIL_STATE[email] = {"ts": now, "digest": dg}
     return True
 
 def send_email(to_addr: str, subject: str, body: str) -> bool:
     if not (SMTP_HOST and SMTP_PORT and SMTP_USER and SMTP_PASS and EMAIL_FROM):
-        print("Email not configured; skipping send.", flush=True)
+        print("Email not configured; skipping send.")
         return False
     try:
         msg = EmailMessage()
-        msg["From"] = EMAIL_FROM; msg["To"] = to_addr; msg["Subject"] = subject
+        msg["From"] = EMAIL_FROM
+        msg["To"] = to_addr
+        msg["Subject"] = subject
         msg.set_content(body)
         ctx = ssl.create_default_context()
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as s:
             s.ehlo(); s.starttls(context=ctx); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
         return True
     except Exception as e:
-        print("send_email error:", e, flush=True); return False
+        print("send_email error:", e)
+        return False
 
-def _groq_chat_with_retry(messages: list[dict]) -> str:
-    if LLM_PROVIDER != "groq": raise RuntimeError(f"Unknown LLM_PROVIDER '{LLM_PROVIDER}'")
-    if not GROQ_API_KEY:       raise RuntimeError("GROQ_API_KEY not set")
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": LLM_MODEL, "messages": messages, "temperature": LLM_TEMPERATURE, "top_p": LLM_TOP_P}
+def llm_chat(messages: list[dict]) -> str:
+    if LLM_PROVIDER == "groq":
+        if not GROQ_API_KEY: raise RuntimeError("GROQ_API_KEY not set")
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": GROQ_MODEL, "messages": messages, "temperature": TEMPERATURE}
+        r = requests.post(url, headers=headers, json=payload, timeout=90)
+        if not r.ok: raise RuntimeError(f"Groq HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json(); return data["choices"][0]["message"]["content"].strip()
+    elif LLM_PROVIDER == "openrouter":
+        if not OPENROUTER_API_KEY: raise RuntimeError("OPENROUTER_API_KEY not set")
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": OPENROUTER_MODEL, "messages": messages, "temperature": TEMPERATURE}
+        r = requests.post(url, headers=headers, json=payload, timeout=90)
+        if not r.ok: raise RuntimeError(f"OpenRouter HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json(); return data["choices"][0]["message"]["content"].strip()
+    else:
+        raise RuntimeError(f"Unknown LLM_PROVIDER '{LLM_PROVIDER}'")
 
-    last_err = None
-    for attempt in range(1, LLM_RETRY_MAX + 1):
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=120)
-            if r.ok:
-                return r.json()["choices"][0]["message"]["content"].strip()
-            status = r.status_code; body = r.text[:200]
-            if status in (429,500,502,503,504):
-                delay = min(20, LLM_RETRY_BASE_DELAY * (2 ** (attempt-1)) + random.random())
-                print(f"[BP] LLM retry {attempt}/{LLM_RETRY_MAX} after {delay:.1f}s (HTTP {status}): {body}", flush=True)
-                time.sleep(delay); last_err = f"Groq HTTP {status}: {body}"; continue
-            r.raise_for_status()
-        except Exception as e:
-            last_err = str(e)
-            delay = min(20, LLM_RETRY_BASE_DELAY * (2 ** (attempt-1)) + random.random())
-            print(f"[BP] LLM exception, retry {attempt}/{LLM_RETRY_MAX} after {delay:.1f}s: {e}", flush=True)
-            time.sleep(delay)
-    raise RuntimeError(last_err or "LLM request failed")
+def guess_domain(name: str, content: str) -> str:
+    n = (name or "").lower()
+    if n.endswith(".tf") or "terraform" in content.lower(): return "Terraform"
+    if n in ("dockerfile",) or n.endswith(".dockerfile"): return "Docker"
+    if n in ("jenkinsfile",) or "pipeline" in content.lower(): return "Jenkins"
+    if n.endswith((".yml",".yaml")):
+        if "argoproj.io" in content: return "ArgoCD"
+        return "Kubernetes"
+    return "General"
 
-def _compose_repo_hints(hints: dict) -> str:
-    parts = []
-    if hints.get("env_files"): parts.append("Env files: " + ", ".join(hints["env_files"][:10]))
-    if hints.get("dockerfile_paths"): parts.append("Dockerfiles: " + ", ".join(hints["dockerfile_paths"][:10]))
-    if hints.get("compose_named_volumes"): parts.append("Compose volumes: " + ", ".join(hints["compose_named_volumes"]))
-    if hints.get("compose_builds"):
-        parts.append("Compose build contexts: " + "; ".join(f"{b['service']}=>{b['context']}" for b in hints["compose_builds"][:12]))
-    if hints.get("compose_env_refs"): parts.append("Compose env refs: " + ", ".join(hints["compose_env_refs"][:12]))
-    return "\n".join(parts)
-
-def _trim_files(files: list[dict]) -> list[dict]:
-    total = 0; out = []
-    for f in sorted(files, key=lambda x: (x.get("path") or x.get("name") or "").lower()):
-        content = f.get("content","")
-        if len(content) > PER_FILE_MAX_CHARS:
-            content = content[:PER_FILE_MAX_CHARS] + "\n...[truncated]..."
-        if total + len(content) > PROMPT_CHAR_BUDGET: break
-        g = dict(f); g["content"] = content; out.append(g); total += len(content)
-    return out
-
-def _build_prompt(files: list[dict], hints: dict, reason: str, created_paths: list[str]) -> list[dict]:
-    repo_ctx = _compose_repo_hints(hints)
-    intro = (
-        "You are a senior DevOps reviewer. Provide a crisp email body:\n"
-        "1) Executive summary. 2) Per-file sections (only files with issues) with short bullets (what/why/fix).\n"
-        "Scope: Docker, Docker Compose, Kubernetes, Argo, Terraform, Jenkins, MongoDB, CI/CD.\n"
-        "If everything looks good, respond briefly with 'All clear'.\n"
+def ai_scan(domain: str, filename: str, content: str) -> list[str]:
+    """
+    Single-pass LLM: return crisp one-sentence issues; [] if none.
+    We also strip generic preambles.
+    """
+    snippet = content if len(content)<=16000 else content[:16000] + "\n...[truncated]..."
+    sys_msg = (
+        "You are a senior DevOps engineer. Read the file and output only concrete bad practices "
+        "or risky choices as short bullets (no intros, no headings). If nothing meaningful is wrong, reply exactly: No issues"
     )
-    if reason == "created": intro += "Context: these files were just CREATED by the user.\n"
-    elif reason == "modified": intro += "Context: these files were MODIFIED by the user.\n"
-    else: intro += "Context: initial repository audit.\n"
-    if created_paths: intro += f"New files: {', '.join(created_paths[:8])}.\n"
+    user_msg = (
+        f"Domain hint: {domain}\n"
+        f"File: {filename}\n"
+        "Code:\n"
+        f"```\n{snippet}\n```"
+    )
+    try:
+        txt = llm_chat([
+            {"role":"system","content":sys_msg},
+            {"role":"user","content":user_msg},
+        ])
+        print(f"[BP] LLM raw for {filename}:\n{txt}\n", flush=True)
+    except Exception as e:
+        print(f"LLM error: {e}", flush=True)
+        return []
 
-    blocks = []
-    for f in files:
-        path = f.get("path") or f.get("name") or "unknown"
-        content = f.get("content","")
-        blocks.append(f"### FILE: {path}\n```\n{content}\n```")
-    bundle = "\n\n".join(blocks)
+    # Normalize/clean
+    lines = []
+    for raw in txt.splitlines():
+        line = raw.strip()
+        if not line: continue
+        # Remove list symbols / indexes
+        line = line.lstrip("-*•–—0123456789.) ").strip()
+        # Drop generic preambles
+        if re.search(r"here('?| i)s a list|potential issues|bad practices", line, re.I):
+            continue
+        if re.fullmatch(r"(?i)no\s+issues(\s+found)?\.?", line):
+            return []
+        lines.append(line)
 
-    return [
-        {"role": "system", "content": intro},
-        {"role": "user", "content": f"Repository context (stable hints):\n{repo_ctx}\n\nFiles to review:\n{bundle}"}
-    ]
+    # dedupe, keep order
+    seen=set(); out=[]
+    for w in lines:
+        if w and w not in seen:
+            seen.add(w); out.append(w)
+    return out[:50]
 
-def _infer_count(email_body: str) -> int:
-    c = 0
-    for line in email_body.splitlines():
-        s = line.strip()
-        if not s: continue
-        if re.match(r"^(?:[-*•]\s+|\d+[.)]\s+)", s): c += 1
-    return c
+def _batch_fingerprint(payload: dict) -> str:
+    rid = payload.get("repo_id","")
+    reason = payload.get("notify_reason","")
+    created = sorted(payload.get("created_paths") or [])
+    files = payload.get("files") or []
+    parts = [rid, reason] + created
+    for f in sorted(files, key=lambda x: (x.get("path") or x.get("name") or "").lower()):
+        path = f.get("path") or f.get("name") or ""
+        dig  = _digest(f.get("content",""))
+        parts.append(f"{path}:{dig}")
+    return _digest("|".join(parts))
 
+def _format_email(email: str, reason: str, created_paths: list[str], results: dict) -> tuple[str,str]:
+    total = sum(len(v) for v in results.values())
+    files_with = [k for k,v in results.items() if v]
+    ts = _now_iso()
+
+    if reason == "initial":
+        subject = f"[BadPractice Agent] Repository audit — {total} issue(s) noted"
+        intro   = "BadPractice Report  •  {}\n\n".format(ts)
+    elif created_paths:
+        fn = created_paths[0] if created_paths else list(results.keys())[0]
+        subject = f"[BadPractice Agent] New file flagged — {fn} ({total} issue(s))"
+        intro   = "A newly created file was flagged. Timestamp: {}\n\n".format(ts)
+    else:
+        subject = f"[BadPractice Agent] File update flagged — {total} issue(s)"
+        intro   = "A change introduced issues. Timestamp: {}\n\n".format(ts)
+
+    lines = [intro, f"Issues: {total}   Files affected: {len(files_with)}\n"]
+    for fname, warns in results.items():
+        if not warns: continue
+        lines.append(f"▶ {fname}  —  {len(warns)} issue(s)")
+        lines.append("-"*38)
+        for i,w in enumerate(warns,1):
+            lines.append(f"{i}. {w}")
+        lines.append("")
+
+    lines.append("Automated by BadPractice Agent. Reply to this email if you need help triaging.\n")
+    body = "\n".join(lines)
+    return subject, body
+
+# ---------- routes ----------
 @app.get("/api/ping")
 def ping():
-    return jsonify({"status":"ok","message":"pong","provider":LLM_PROVIDER})
+    return jsonify({"status": "ok", "message": "pong", "provider": LLM_PROVIDER})
 
 @app.post("/api/analyze_batch")
 def analyze_batch():
-    data = request.get_json(force=True)
-    email   = (data.get("email") or "").strip()
-    files   = data.get("files", [])
-    hints   = data.get("repo_hints") or {}
-    reason  = (data.get("notify_reason") or "initial").lower()
+    data = request.get_json(force=True) or {}
+    email = (data.get("email") or "").strip()
+    files = data.get("files") or []
+    reason = data.get("notify_reason") or "initial"
     created_paths = data.get("created_paths") or []
-    batch_id = (data.get("batch_id") or "").strip()
+    repo_id = data.get("repo_id") or ""
 
-    files = _trim_files(files)
-    # server-side dedupe: one email per identical batch within TTL
-    if email and batch_id and not _should_send_by_batch(email, batch_id):
-        return jsonify({"files_analyzed": len(files), "issues_found": 0, "email_sent": False, "results": {}})
+    # server dedupe
+    fp = _batch_fingerprint(data)
+    now = time.time()
+    for k in list(RECENT_BATCH.keys()):
+        if now - RECENT_BATCH[k] > BATCH_TTL: del RECENT_BATCH[k]
+    if fp in RECENT_BATCH:
+        return jsonify({"files_analyzed": len(files), "issues_found": 0, "email_sent": False, "deduped": True})
+    RECENT_BATCH[fp] = now
 
-    try:
-        messages = _build_prompt(files, hints, reason, created_paths)
-        body = _groq_chat_with_retry(messages)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # Optional guard: block multi-file "modified" mails (the 'extra email' you don't want)
+    if (not ALLOW_MULTI_MOD_EMAILS) and reason == "modified" and not created_paths and len(files) > 1:
+        return jsonify({
+            "files_analyzed": len(files),
+            "issues_found": 0,
+            "email_sent": False,
+            "suppressed": "multi-file-modified"
+        })
 
-    issues = _infer_count(body)
-    if reason == "created":
-        subject = (f"[BadPractice Agent] New file flagged — {issues} issue(s) in "
-                   f"{files[0].get('path') or files[0].get('name')}" if len(files)==1
-                   else f"[BadPractice Agent] New files flagged — {issues} issue(s) across {len(files)} file(s)")
-    elif reason == "modified":
-        subject = f"[BadPractice Agent] Update flagged — {issues} issue(s) across {len(files)} file(s)"
-    else:
-        subject = f"[BadPractice Agent] Repository audit — {issues} issue(s) noted" if issues else \
-                  "[BadPractice Agent] Repository audit — all clear"
+    # run scan
+    results = {}
+    total = 0
+    for f in files:
+        name = f.get("path") or f.get("name") or "unknown"
+        content = f.get("content","")
+        domain = guess_domain(name, content)
+        warns = ai_scan(domain, name, content)
+        results[name] = warns
+        total += len(warns)
 
-    wrapped = f"{SEPARATOR}\n{body}\n{SEPARATOR}"
     sent = False
-    if email:
-        sent = send_email(email, subject, wrapped)
+    if email and total>0:
+        subject, body = _format_email(email, reason, created_paths, results)
+        if _should_send(email, body):
+            sent = send_email(email, subject, body)
 
-    print(f"[BP] results summary: issues_found={issues} email_sent={sent} reason={reason} files={len(files)}", flush=True)
-    return jsonify({"files_analyzed": len(files), "issues_found": issues, "email_sent": bool(sent), "results": {}})
+    return jsonify({
+        "files_analyzed": len(files),
+        "issues_found": total,
+        "email_sent": bool(sent),
+        "results": results,
+        "dedupe_fp": fp,
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

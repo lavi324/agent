@@ -1,24 +1,16 @@
 services:
   mongo:
     image: mongo:6
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongo-data:/data/db
 
   backend:
     build: ./backend
-    ports:
-    - "5000:5000"
     environment:
-      # LLM (free)
-      LLM_PROVIDER: "${LLM_PROVIDER}"        # groq | openrouter
+      LLM_PROVIDER: "${LLM_PROVIDER}"      
       LLM_MODEL: "${LLM_MODEL}"
       GROQ_API_KEY: "${GROQ_API_KEY}"
       LLM_TEMPERATURE: "${LLM_TEMPERATURE}"
-
-      # Email
       SMTP_HOST: "${SMTP_HOST}"
       SMTP_PORT: "${SMTP_PORT}"
       SMTP_USER: "${SMTP_USER}"
@@ -26,15 +18,11 @@ services:
       EMAIL_FROM: "${EMAIL_FROM}"
       EMAIL_MIN_INTERVAL: "${EMAIL_MIN_INTERVAL}"
 
-    depends_on:
-      - mongo
 
-  frontend:
+  nginx:
     build: ./frontend
-    depends_on:
-      - backend
     ports:
-      - "8080:80"
+      - "80:80"
 
 volumes:
   mongo-data:

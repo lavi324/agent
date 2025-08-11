@@ -5,12 +5,11 @@
 Bad-Practice Agent is a local DevOps *watchdog* that uses a powerful LLM (Large Language Model) to scan your source code for bad practices and potential issues. Running in your own environment via a CLI tool, it catches anti-patterns, bugs, and security vulnerabilities that traditional linters might miss. When triggered, it automatically reviews the codebase and emails you detailed reports of its findings – providing a full project audit on first run, and focused alerts for individual files on subsequent changes. 
 
 ## Motivation
-Modern codebases can suffer from subtle issues that slip through manual code review or basic static analysis. **BadPractice Agent** was created to address this gap by leveraging AI for continuous code quality assurance:
+Modern codebases can suffer from subtle issues that slip through. **Bad-Practice Agent** was created to address this gap by leveraging AI for continuous code quality assurance:
 - **Proactive Quality Control:** Detects code smells, deprecated patterns, and security pitfalls early, before they reach production.
 - **Immediate Feedback:** Alerts developers via email as soon as bad practices are introduced, enabling quick fixes in the development cycle.
-- **Augment Code Reviews:** Complements human reviews by catching overlooked issues, reducing the burden on reviewers.
 - **Maintain Standards:** Enforces coding best practices consistently across the project, helping teams maintain clean, maintainable code.
-- **Local and Secure:** Runs in your environment (via Docker) – your code and analysis stay within your infrastructure, with optional offline LLM support.
+- **Local and Secure:** Runs in your environment (via Docker) – your code and analysis stay within your infrastructure.
 
 ## Architecture
 The BadPractice Agent consists of several components orchestrated with Docker Compose, as illustrated below:
@@ -23,9 +22,9 @@ The BadPractice Agent consists of several components orchestrated with Docker Co
                                  +--------------+  |    +-----------+ 
                                      |   ^         | 
                                      v   |         |    +---------+ 
-                               (Optional)|         +--> |  SMTP   | 
-                                MongoDB  |   (Nginx proxy)  (Email 
-                               (Storage) |             Server) 
+                                         |         +--> |  SMTP   | 
+                                MongoDB  |      
+                               (Storage) |             (Email Server) 
                                      |   | 
                                      v   | 
                                  +------------+ 
@@ -36,28 +35,31 @@ The BadPractice Agent consists of several components orchestrated with Docker Co
 - **CLI Tool:** Command-line interface for initiating scans (`init`) and interacting with the agent.
 - **Flask API (Backend):** Receives analysis requests from the CLI (and UI), processes file scans using the LLM, and coordinates results storage and email notifications.
 - **LLM Engine:** An AI model (e.g. GPT-4 or similar) that reviews code for bad practices and provides contextual feedback/suggestions.
-- **MongoDB (Optional):** A database for storing issue metadata (e.g. which issues were found in which file and when), allowing the agent to avoid duplicate reports and track history. The agent can run without it, but enabling MongoDB provides persistence and more intelligent alerting.
+- **MongoDB (Optional):** A database for storing user bad-practices ideas.
 - **Email SMTP Service:** Used to send out email reports. The agent composes summary emails of findings and delivers them to the configured recipients via SMTP.
-- **React Frontend:** A static web dashboard for visualizing the audit results. Developers can browse identified issues, their severity, and status. This app is built with React and served by Nginx.
-- **Nginx:** Web server that serves the React frontend and acts as a reverse proxy for API calls (for example, forwarding requests from the UI at `/api/*` to the Flask backend).
+- **React Frontend:** A static web page for users to send their bad-practices ideas.
+- **Nginx:** Web server that serves the React frontend and acts as a reverse proxy for API calls.
 
 ## Project Structure
     .
-    ├── backend/               # Flask API source code (Python)
-    │   ├── app.py             # Flask application entry point
-    │   ├── requirements.txt   # Backend dependencies
-    │   └── ...                # (analysis logic, LLM integration, etc.)
-    ├── frontend/              # React app source code (JavaScript/TypeScript)
-    │   ├── public/            # Static assets
-    │   ├── src/               # React components and code
-    │   └── build/             # Production-ready static files (generated)
-    ├── nginx/                 # Nginx configuration for frontend and proxy
-    │   └── default.conf       # Nginx config (serves build/ and proxies /api)
-    ├── docker-compose.yml     # Docker Compose file orchestrating all services
-    ├── Dockerfile.backend     # Dockerfile for building the Flask API image
-    ├── Dockerfile.frontend    # Dockerfile for building the React+Nginx image
-    ├── .env.example           # Example environment variables file
-    └── LICENSE                # MIT License file
+    ├── backend/               
+    │   ├── app.py             
+    │   ├── requirements.txt   
+    │   └── Dockerfile          
+    ├── frontend/
+    │   ├── package-lock.json
+    │   ├── package.json
+    │   ├── nginx.conf
+    │   ├── Dockerfile
+    │   ├── public/           
+    │   ├── src/               
+    │   └── build/            
+    ├── cli/                
+    │   ├── bp.py     
+    ├── docker-compose.yml       
+    ├── .env
+    ├── .gitignore
+   
 
 ## Setup
 

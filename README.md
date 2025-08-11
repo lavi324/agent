@@ -2,7 +2,7 @@
 
 
 ## Introduction
-Bad-Practice Agent is a local DevOps *watchdog* that uses a powerful LLM (Large Language Model) to scan your source code for bad practices and potential issues. Running in your own environment via a CLI tool, it catches anti-patterns, bugs, and security vulnerabilities that traditional linters might miss. When triggered, it automatically reviews the codebase and emails you detailed reports of its findings – providing a full project audit on first run, and focused alerts for individual files on subsequent changes. A companion web dashboard is also included for visualizing issues and tracking code health over time.
+Bad-Practice Agent is a local DevOps *watchdog* that uses a powerful LLM (Large Language Model) to scan your source code for bad practices and potential issues. Running in your own environment via a CLI tool, it catches anti-patterns, bugs, and security vulnerabilities that traditional linters might miss. When triggered, it automatically reviews the codebase and emails you detailed reports of its findings – providing a full project audit on first run, and focused alerts for individual files on subsequent changes. 
 
 ## Motivation
 Modern codebases can suffer from subtle issues that slip through manual code review or basic static analysis. **BadPractice Agent** was created to address this gap by leveraging AI for continuous code quality assurance:

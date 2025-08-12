@@ -34,7 +34,7 @@ The BadPractice Agent consists of several components orchestrated with Docker Co
                                  +------------+   served via Nginx)
 
 **Components:**
-- **CLI Tool:** Command-line interface for initiating scans (`init`) and interacting with the agent.
+- **CLI Tool:** Command-line interface for interacting with the agent.
 - **Flask API (Backend):** Receives analysis requests from the CLI (and UI), processes file scans using the LLM, and coordinates results storage and email notifications.
 - **LLM Engine:** An AI model (e.g. GPT-4 or similar) that reviews code for bad practices and provides contextual feedback/suggestions.
 - **MongoDB (Optional):** A database for storing user bad-practices ideas.

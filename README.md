@@ -67,8 +67,8 @@ The BadPractice Agent consists of several components orchestrated with Docker Co
 
 1. **Clone the repository** and navigate into it:
 
-        git clone https://github.com/lavi324/badpractice-agent.git
-        cd badpractice-agent
+        git clone https://github.com/lavi324/bad_practice_agent.git
+        cd bad_practice_agent
 
 2. **Configure environment variables:** 
     - LLM API credentials.
@@ -80,7 +80,7 @@ The BadPractice Agent consists of several components orchestrated with Docker Co
 
         docker-compose up -d --build
 
-   This will spin up the Flask API (backend) and the React frontend. 
+   This will spin up the AI agent (ignore the Mongo and the Nginx apps). 
 
 4. **Initialize the agent** via the CLI:
 

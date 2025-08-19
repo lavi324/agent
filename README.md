@@ -2,9 +2,9 @@
 
 
 ## Introduction
-Bad-Practice Agent is a local DevOps *watchdog* that uses a powerful LLM to scan your source code for bad practices and potential issues. Running in your own environment via a CLI tool, it catches anti-patterns and security vulnerabilities that traditional linters might miss. When triggered, it automatically reviews the codebase and emails you detailed reports of its findings – providing a full project audit on first run, and focused alerts for individual files on subsequent changes. 
+Bad-Practice Agent is a local DevOps *watchdog* that uses a powerful LLM to scan your source code for bad practices and potential issues. Running in your own environment via a CLI tool, it catches anti-patterns and security vulnerabilities. When triggered, it automatically reviews the codebase and emails you detailed reports of its findings – providing a full project audit on first run, and focused alerts for individual files on subsequent changes. 
 
-The agent continuously watches DevOps files and only analyzes those: Terraform (.tf, .tfvars, .hcl), Kubernetes / Helm / Kustomize YAML (*.yaml, *.yml, plus chart.yaml, values.yaml, kustomization.yaml), Docker (Dockerfile, *.dockerfile, docker-compose.yml|.yaml, compose.yml|.yaml), Jenkins (Jenkinsfile), and JSON configs (*.json). It also catches Argo CD resources (any YAML with argoproj.io) and MongoDB configs expressed in YAML/JSON, flagging bad practices when they appear.
+The agent continuously watches DevOps files like: Terraform (.tf, .tfvars, .hcl), Kubernetes / Helm / Kustomize YAML (*.yaml, *.yml, plus chart.yaml, values.yaml, kustomization.yaml), Docker (Dockerfile, *.dockerfile, docker-compose.yml|.yaml, compose.yml|.yaml), Jenkins (Jenkinsfile), and JSON configs (*.json). It also catches Argo CD resources (any YAML with argoproj.io) and MongoDB configs expressed in YAML/JSON, flagging bad practices when they appear.
 
 ## Motivation
 Modern codebases can suffer from subtle issues that slip through. **Bad-Practice Agent** was created to address this gap by leveraging AI for continuous code quality assurance:
